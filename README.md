@@ -24,10 +24,10 @@
    - `draft_agent`：整合內容並撰寫報告草稿
    - `document_agent`：格式化並保存最終報告
 
-2. **RAG 系統**：使用 LlamaIndex 實現的檢索增強生成系統，包含：
+2. **SimpleRAG 系統**：使用簡單關鍵詞匹配實現的檢索增強生成系統，包含：
    - 文檔加載和處理機制
-   - 向量化和索引建立
-   - 語義檢索引擎
+   - 基於關鍵詞匹配的相似度計算
+   - 文本塊檢索引擎
 
 ## 環境設置
 
@@ -45,7 +45,6 @@
    ```bash
    pip install "autogen-ext[openai,mcp]" autogen-agentchat
    pip install mcp-server-fetch
-   pip install llama-index==0.9.43
    pip install python-dotenv
    ```
 
@@ -72,7 +71,7 @@ project/
 │
 ├── output/                      # 輸出報告目錄
 │
-├── reflection_rag.py            # RAG 實現
+├── simple_rag.py                # 簡單RAG實現
 ├── esg_news_analyzer.py         # 主程序
 ├── run_esg_analyzer.py          # 啟動腳本
 └── README.md                    # 本文檔
@@ -94,37 +93,36 @@ project/
 
 4. 查看 `output` 目錄中生成的報告
 
-## RAG 系統詳解
+## SimpleRAG 系統詳解
 
-本項目實現了一個基於 LlamaIndex 的 RAG 系統，用於增強 `reflection_agent` 的能力：
+本項目實現了一個簡單的基於關鍵詞匹配的 RAG 系統，用於增強 `reflection_agent` 的能力：
 
 ### 文檔處理
 
-- 使用 LlamaIndex 的 `SimpleDirectoryReader` 加載 Markdown 文件
-- 使用 `SentenceSplitter` 將文檔分塊，設定合適的塊大小和重疊量
+- 直接加載 Markdown 文件
+- 使用基於章節和段落的自然分界點進行文本分塊
 - 保留文檔結構和章節信息
 
-### 嵌入和索引
+### 檢索機制
 
-- 使用 Azure OpenAI 的 `text-embedding-ada-002` 模型生成文本嵌入
-- 建立向量索引存儲這些嵌入
-- 支持基於相似度的檢索
+- 使用基本的關鍵詞匹配計算相似度
+- 將查詢和文本轉換為詞集合，計算詞集合的交集大小
+- 基於相似度排序檢索最相關的文本塊
 
 ### 查詢處理
 
 - 將 `reflection_agent` 的需求轉化為查詢
-- 使用語義相似度在向量空間中檢索相關內容
-- 將檢索到的內容集成到 agent 的系統提示中
+- 預先查詢關鍵評估內容，嵌入到系統提示中
+- 支持根據不同查詢動態檢索內容
 
 ## 技術細節
 
-- **嵌入模型**：Azure OpenAI text-embedding-ada-002
-- **索引類型**：向量存儲索引
-- **分塊策略**：基於句子的分塊，512 tokens/塊，50 tokens 重疊
-- **檢索方法**：top-k 語義相似度檢索
+- **相似度計算**：基於關鍵詞匹配的相似度計算
+- **分塊策略**：基於自然段落和章節的分塊，最大500字符/塊
+- **檢索方法**：top-k 關鍵詞相似度檢索
 
 ## 維護和擴展
 
 - 若要更新評估指南，只需修改 `manual_for_RAG` 目錄中的文件
-- 若要調整檢索性能，可修改 `reflection_rag.py` 中的參數
+- 若要調整檢索性能，可修改 `simple_rag.py` 中的相似度計算和分塊策略
 - 若要擴展到其他代理，可複製類似的 RAG 實現模式 
