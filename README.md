@@ -81,14 +81,15 @@ project/
 
 1. 確保 `ESG_Reflection_Agent_Guide.md` 文件已放入 `manual_for_RAG` 目錄
 
-2. 設置 Azure API 密鑰：
+2. 設置  API 密鑰：
    ```powershell
    $env:AZURE_API_KEY="你的API金鑰"
+   $env:OPENAI_API_KEY="你的OpenAI API金鑰
    ```
 
 3. 運行啟動腳本：
    ```bash
-   python run_esg_analyzer.py
+   python esg_analyzer.py
    ```
 
 4. 查看 `output` 目錄中生成的報告
