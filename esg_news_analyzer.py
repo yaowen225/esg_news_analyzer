@@ -1,6 +1,6 @@
 import asyncio
 from typing import Sequence
-from autogen_ext.models.openai import AzureOpenAIChatCompletionClient
+from autogen_ext.models.openai import AzureOpenAIChatCompletionClient, OpenAIChatCompletionClient
 from autogen_agentchat.agents import AssistantAgent
 from autogen_agentchat.teams import SelectorGroupChat
 from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
@@ -39,25 +39,44 @@ async def main():
     # 從 MCP 服務器獲取 filesystem 工具
     tools_write = await mcp_server_tools(write_mcp_server)
     
-    # 創建Azure OpenAI模型客戶端
-    # 記得先在終端輸入:" $env:AZURE_API_KEY="你的API金鑰 "
-    api_key = os.getenv("AZURE_API_KEY")
-
-    model_client = AzureOpenAIChatCompletionClient(
-        azure_deployment="gpt-4o",
-        azure_endpoint="https://my-llm-service-001.openai.azure.com/",
-        model="gpt-4o",
-        api_version="2024-12-01-preview",
-        api_key=api_key
+    # 創建模型客戶端 - 選擇使用哪種API
+    # 切換API種類請註釋/取消註釋以下區塊
+    
+    # === OpenAI API ===
+    # 記得設置環境變數 OPENAI_API_KEY
+    # $env:OPENAI_API_KEY="你的OpenAI API金鑰"
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    
+    model_client = OpenAIChatCompletionClient(
+        model="gpt-4o", 
+        api_key=openai_api_key
     )
     
-    selector_model_client = AzureOpenAIChatCompletionClient(
-        azure_deployment="gpt-4o-mini",
-        azure_endpoint="https://my-llm-service-001.openai.azure.com/",
+    selector_model_client = OpenAIChatCompletionClient(
         model="gpt-4o-mini",
-        api_version="2024-12-01-preview",
-        api_key=api_key
+        api_key=openai_api_key
     )
+    
+    # === Azure OpenAI API ===
+    # 記得設置環境變數 AZURE_API_KEY
+    # $env:AZURE_API_KEY="你的API金鑰"
+    # api_key = os.getenv("AZURE_API_KEY")
+    # 
+    # model_client = AzureOpenAIChatCompletionClient(
+    #     azure_deployment="gpt-4o",
+    #     azure_endpoint="https://my-llm-service-001.openai.azure.com/",
+    #     model="gpt-4o",
+    #     api_version="2024-12-01-preview",
+    #     api_key=api_key
+    # )
+    # 
+    # selector_model_client = AzureOpenAIChatCompletionClient(
+    #     azure_deployment="gpt-4o-mini",
+    #     azure_endpoint="https://my-llm-service-001.openai.azure.com/",
+    #     model="gpt-4o-mini",
+    #     api_version="2024-12-01-preview",
+    #     api_key=api_key
+    # )
     
     # 創建網頁抓取代理 - 專注獲取原始文本
     web_scraper_agent = AssistantAgent(
@@ -71,14 +90,14 @@ async def main():
         
         **執行步驟**：
         1.  **必須使用 `fetch_txt` 工具** 抓取首頁。
-        2.  **優先抓取**新聞列表、主要內容等最可能包含標題的區域。
-        3.  **避免抓取**導航欄、頁腳、廣告等無關內容。
-        4.  如果初次抓取的文本明顯缺乏標題內容，可以**嘗試抓取其他部分**（如"Recent Posts"），但仍需使用 `fetch_txt`。
-        5.  **禁止自行提取標題**。你的輸出必須是**未經處理的原始文本**（可進行最小程度的清理，如去除多餘空行，但保留結構）。
-        6.  將獲取的**原始文本**直接傳遞給 `title_extractor_agent`。
+        2.  **優先抓取且僅抓取**新聞列表部分，避免抓取整個頁面內容。
+        3.  **完全避免抓取**導航欄、頁腳、廣告、側邊欄等無關內容。
+        4.  **嚴格限制抓取量**：只抓取10-20條新聞標題相關的文本，避免抓取過多內容導致標記超限。
+        5.  如果首頁內容結構複雜，可以嘗試抓取特定內容區塊，例如首頁的"Latest News"或"Recent Posts"部分。
+        6.  **禁止自行提取標題**。你的輸出必須是簡潔的原始文本塊，不要包含過多的HTML標記或不相關內容。
         
-        **目標**：提供一個包含足夠潛在標題（理想情況下至少10個）的**原始文本塊**。
-        **注意**：除非 `correction_agent` 明確指示，否則不要重複抓取。
+        **目標**：提供一個包含10-20個潛在標題的**簡潔原始文本塊**。
+        **非常重要**：確保抓取的總內容在10,000字符以內，避免超出模型處理能力。
         """
     )
     
@@ -261,12 +280,13 @@ async def main():
             *   `content`: 經過最終格式化的完整報告字串。
             *   `path`: 嚴格使用此路徑 `'output/ESG_News_{current_datetime}.md'`。
         4.  **調用保存工具**：**必須且只能使用 `mcp_filesystem_write_file` 工具**，提供準備好的 `content` 和 `path`。
-        5.  **結束流程**：在**成功調用 `mcp_filesystem_write_file` 工具後**（你會收到工具執行的結果，確認無誤），**必須立即回復一個單獨的、不包含任何其他字符的字串：「TERMINATE」**。
+        5.  **結束流程**：在**成功調用 `mcp_filesystem_write_file` 工具後**，**你必須發送一個新消息，其中僅包含「TERMINATE」這個詞，不要加任何其他內容、解釋或標點符號**。
         
         **極其重要**：
         -   必須實際調用工具 `mcp_filesystem_write_file`。
         -   必須使用指定的 `path`。
-        -   **工具調用成功後，你的唯一回覆必須是「TERMINATE」**，沒有任何額外文字。
+        -   **你的最終回覆必須是一個單獨的新消息，只包含「TERMINATE」**，沒有任何前綴、後綴或其他文字。
+        -   不要在工具調用後的同一條消息中包含「TERMINATE」，必須發送一個新的獨立消息。
         """
     )
     
