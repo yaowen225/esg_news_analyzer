@@ -72,8 +72,7 @@ project/
 ├── output/                      # 輸出報告目錄
 │
 ├── simple_rag.py                # 簡單RAG實現
-├── esg_news_analyzer.py         # 主程序
-├── run_esg_analyzer.py          # 啟動腳本
+├── esg_news_analyzer.py         # 主程式
 └── README.md                    # 本文檔
 ```
 
