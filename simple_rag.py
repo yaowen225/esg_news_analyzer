@@ -1,7 +1,9 @@
 import os
 import re
 import openai
+import numpy as np
 from dotenv import load_dotenv
+from openai import AzureOpenAI
 
 class SimpleRAG:
     
@@ -15,10 +17,17 @@ class SimpleRAG:
         self.api_base = os.getenv("AZURE_ENDPOINT", "https://my-llm-service-001.openai.azure.com")
         self.api_version = os.getenv("AZURE_API_VERSION", "2023-05-15")
         
-        openai.api_key = self.api_key
-        openai.api_base = self.api_base
-        openai.api_type = "azure"
-        openai.api_version = self.api_version
+        # 設置嵌入模型名稱
+        self.embedding_model = os.getenv("AZURE_EMBEDDING_MODEL", "text-embedding-ada-002")
+        # 設置GPT模型名稱
+        self.gpt_model = os.getenv("gpt-4o", "gpt-4o")
+        
+        # 初始化 Azure OpenAI 客戶端
+        self.client = AzureOpenAI(
+            api_key=self.api_key,
+            api_version=self.api_version,
+            azure_endpoint=self.api_base
+        )
         
         # 加載手冊內容
         self.guide_content = self._load_guide()
@@ -26,6 +35,10 @@ class SimpleRAG:
         # 將內容分塊
         self.chunks = self._chunk_content(self.guide_content)
         print(f"將文檔分為 {len(self.chunks)} 個塊")
+        
+        # 為文本塊生成嵌入
+        self.chunk_embeddings = self._generate_embeddings(self.chunks)
+        print(f"已生成 {len(self.chunk_embeddings)} 個文本嵌入")
     
     def _load_guide(self):
         """加載 ESG 反思指南"""
@@ -85,17 +98,40 @@ class SimpleRAG:
         
         return chunks
     
-    def _calculate_similarity(self, query, text):
-        """計算查詢和文本塊之間的相似度（基於關鍵詞匹配）"""
-        # 將查詢和文本轉換為小寫，並分割為詞
-        query_words = set(query.lower().split())
-        text_words = set(text.lower().split())
+    def _generate_embeddings(self, texts):
+        """使用Azure OpenAI API生成文本嵌入"""
+        embeddings = []
+        try:
+            for text in texts:
+                response = self.client.embeddings.create(
+                    input=text,
+                    model=self.embedding_model
+                )
+                embeddings.append(response.data[0].embedding)
+            return embeddings
+        except Exception as e:
+            print(f"生成嵌入時出錯: {e}")
+            # 如果API出錯，返回空嵌入列表
+            return [[] for _ in texts]
+    
+    def _calculate_similarity(self, query_embedding, chunk_embeddings):
+        """計算查詢嵌入和文本塊嵌入之間的餘弦相似度"""
+        # 如果嵌入為空，返回零相似度
+        if not query_embedding or not chunk_embeddings or not all(chunk_embeddings):
+            return [0] * len(chunk_embeddings)
         
-        # 計算相交的詞數
-        intersection = query_words.intersection(text_words)
+        similarities = []
+        for emb in chunk_embeddings:
+            # 計算兩個向量的點積
+            dot_product = sum(a * b for a, b in zip(query_embedding, emb))
+            # 計算向量長度
+            magnitude_a = sum(a * a for a in query_embedding) ** 0.5
+            magnitude_b = sum(b * b for b in emb) ** 0.5
+            # 計算餘弦相似度
+            similarity = dot_product / (magnitude_a * magnitude_b) if magnitude_a * magnitude_b > 0 else 0
+            similarities.append(similarity)
         
-        # 返回相似度得分
-        return len(intersection) / max(len(query_words), 1)
+        return similarities
     
     def query_guide(self, query, top_k=3):
         """查詢指南並返回最相關的內容"""
@@ -103,19 +139,36 @@ class SimpleRAG:
             return "無法查詢指南，未成功加載指南內容。"
         
         try:
-            # 計算每個塊與查詢的相似度
-            chunk_scores = [(chunk, self._calculate_similarity(query, chunk)) for chunk in self.chunks]
+            # 生成查詢的嵌入向量
+            query_embedding = self._generate_embeddings([query])[0]
             
-            # 按相似度排序
-            chunk_scores.sort(key=lambda x: x[1], reverse=True)
+            # 計算相似度
+            similarities = self._calculate_similarity(query_embedding, self.chunk_embeddings)
             
-            # 獲取最相關的 top_k 個塊
-            top_chunks = [chunk for chunk, score in chunk_scores[:top_k]]
+            # 排序並獲取前top_k個相似塊的索引
+            top_indices = sorted(range(len(similarities)), key=lambda i: similarities[i], reverse=True)[:top_k]
             
-            # 組合結果
-            result = "\n\n".join(top_chunks)
+            # 獲取最相關的top_k個塊
+            top_chunks = [self.chunks[i] for i in top_indices]
             
-            return result
+            # 將相關內容組合為上下文
+            context = "\n\n".join(top_chunks)
+            
+            try:
+                # 使用GPT模型生成最終回答
+                response = self.client.chat.completions.create(
+                    model=self.gpt_model,
+                    messages=[
+                        {"role": "system", "content": "你是一個ESG分析助手。請根據提供的上下文回答用戶問題。如果上下文中沒有相關信息，請誠實告知。"},
+                        {"role": "user", "content": f"基於以下參考信息回答問題：\n\n{context}\n\n問題：{query}"}
+                    ]
+                )
+                return response.choices[0].message.content
+            except Exception as api_error:
+                print(f"GPT API調用出錯: {api_error}")
+                # 如果GPT API調用失敗，回退到直接返回相關內容
+                return context
+                
         except Exception as e:
             print(f"查詢過程中出錯: {e}")
             import traceback

@@ -24,13 +24,13 @@ async def main():
     # 設置 MCP fetch 服務器參數
     fetch_mcp_server = StdioServerParams(
         command="node", 
-        args=["C:/Users/USER/Desktop/code/mcp-servers/fetch-mcp/dist/index.js"]
+        args=["C:/Users/yaowe/Desktop/Personal/code/mcp-servers/fetch-mcp/dist/index.js"]
     )
     
     # 設置 MCP 文件系統服務器參數
     write_mcp_server = StdioServerParams(
         command="npx", 
-        args=["@modelcontextprotocol/server-filesystem", "C:/Users/USER/Desktop/code/CE8014/hw3"]
+        args=["@modelcontextprotocol/server-filesystem", "C:/Users/yaowe/Desktop/Personal/code/CE8014/esg_news_analyzer"]
     )
     
     # 從 MCP 服務器獲取 fetch 工具
